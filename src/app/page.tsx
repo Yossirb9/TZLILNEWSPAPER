@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { Edition } from "@/types/edition";
+import { useState, useCallback } from "react";
+import { Edition, ArticleContent } from "@/types/edition";
 import CoverPage from "@/components/CoverPage";
 import TableOfContents from "@/components/TableOfContents";
 import ArticlePage from "@/components/ArticlePage";
 import FunZonePage from "@/components/FunZonePage";
-import ComicPage from "@/components/ComicPage";
+import RecommendationPage from "@/components/RecommendationPage";
+import FullPageImagePage from "@/components/FullPageImagePage";
 
 interface TopicField {
   key: string;
@@ -16,12 +17,13 @@ interface TopicField {
 }
 
 const topicFields: TopicField[] = [
-  { key: "headlineTopic", label: "כתבת השער", placeholder: "למשל: חגיגות יום העצמאות...", icon: "📰" },
+  { key: "headlineTopic", label: "כתבת השער", placeholder: "ריק = מדע/טכנולוגיה/טבע", icon: "📰" },
   { key: "scienceTopic", label: "מדעים", placeholder: "למשל: חורים שחורים, DNA...", icon: "🔬" },
   { key: "innovationTopic", label: "חדשנות", placeholder: "למשל: רובוטיקה, בינה מלאכותית...", icon: "💡" },
-  { key: "musicTopic", label: "מוזיקה ותרבות", placeholder: "למשל: כלי נגינה, אמנים מיוחדים...", icon: "🎵" },
+  { key: "musicTopic", label: "מוזיקה", placeholder: "למשל: כלי נגינה, אמנים, סגנונות...", icon: "🎵" },
   { key: "natureTopic", label: "טבע", placeholder: "למשל: דולפינים, יערות הגשם...", icon: "🌿" },
   { key: "heritageTopic", label: "שבילי מורשת", placeholder: "למשל: ירושלים, דוד בן גוריון...", icon: "🏛️" },
+  { key: "recommendationTopic", label: "המלצה", placeholder: "למשל: ספרי פנטזיה, סרטי טבע...", icon: "⭐" },
 ];
 
 export default function Home() {
@@ -48,7 +50,7 @@ export default function Home() {
     "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
     "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
   ];
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i); // 5 years back, 4 forward
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
 
   const updateTopic = (key: string, value: string) => {
     setTopics(prev => ({ ...prev, [key]: value }));
@@ -62,6 +64,24 @@ export default function Home() {
       reader.readAsDataURL(file);
     }
   };
+
+  // Callback: article regenerated → update edition state so TOC and cover update
+  const handleArticleRegenerate = useCallback((section: string, newArticle: ArticleContent) => {
+    setEdition(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev };
+      switch (section) {
+        case "headline": updated.headline = newArticle; break;
+        case "science": updated.science = newArticle; break;
+        case "innovation": updated.innovation = newArticle; break;
+        case "music": updated.music = newArticle; break;
+        case "nature": updated.nature = newArticle; break;
+        case "heritage": updated.heritage = newArticle; break;
+        case "custom": updated.customArticle = newArticle; break;
+      }
+      return updated;
+    });
+  }, []);
 
   const generateEdition = async () => {
     setLoading(true);
@@ -93,8 +113,87 @@ export default function Home() {
 
   const handlePrint = () => window.print();
 
-  // ─── Side-by-side Layout ───
-  // Settings panel (right) + Magazine preview (left)
+  const handleImageUpload = (sectionKey: string, dataUrl: string) => {
+    if (!edition) return;
+
+    setEdition(prev => {
+      if (!prev) return null;
+      const newEdition = { ...prev };
+
+      if (sectionKey === "custom") {
+        if (newEdition.customArticle) {
+          newEdition.customArticle = {
+            ...newEdition.customArticle,
+            custom_image_url: dataUrl
+          };
+        }
+      } else {
+        // @ts-ignore - Dynamic access
+        if (newEdition[sectionKey]) {
+          // @ts-ignore
+          newEdition[sectionKey] = {
+            // @ts-ignore
+            ...newEdition[sectionKey],
+            custom_image_url: dataUrl
+          };
+        }
+      }
+      return newEdition;
+    });
+  };
+
+  const articleOrder = ["headline", "science", "innovation", "music", "nature", "heritage"];
+
+  // Calculate dynamic page numbers based on 2-page article
+  const getPageNumbers = () => {
+    if (!edition) return { headline: 3, science: 4, innovation: 5, music: 6, nature: 7, heritage: 8, custom: 9, recommendation: 10, funZone: 11 };
+
+    const twoPage = edition.twoPageSection;
+    let page = 3;
+    const pages: Record<string, number> = {};
+
+    pages.headline = page;
+    page += (twoPage === "headline" ? 2 : 1);
+    if (edition.headline.full_page_image_prompt) page++;
+
+    pages.science = page;
+    page += (twoPage === "science" && edition.science.is_two_page) ? 2 : 1;
+    if (edition.science.full_page_image_prompt) page++;
+
+    pages.innovation = page;
+    page += (twoPage === "innovation" && edition.innovation.is_two_page) ? 2 : 1;
+    if (edition.innovation.full_page_image_prompt) page++;
+
+    pages.music = page;
+    page += (twoPage === "music" && edition.music.is_two_page) ? 2 : 1;
+    if (edition.music.full_page_image_prompt) page++;
+
+    pages.nature = page;
+    page += (twoPage === "nature" && edition.nature.is_two_page) ? 2 : 1;
+    if (edition.nature.full_page_image_prompt) page++;
+
+    pages.heritage = page;
+    page += (twoPage === "heritage" && edition.heritage.is_two_page) ? 2 : 1;
+    if (edition.heritage.full_page_image_prompt) page++;
+
+    if (edition.customArticle) {
+      pages.custom = page;
+      page++;
+    }
+
+    if (edition.recommendation) {
+      pages.recommendation = page;
+      page++;
+    }
+
+    pages.funZone = page;
+    page += 4; // trivia/riddle, word search, crossword, tashchetz
+
+    return pages;
+  };
+
+  const pageNums = edition ? getPageNumbers() : null;
+
   return (
     <div className="app-layout no-print-layout">
 
@@ -125,7 +224,7 @@ export default function Home() {
         )}
 
         {/* Magazine pages */}
-        {edition && !loading && (
+        {edition && !loading && pageNums && (
           <div className="magazine-viewer">
             <CoverPage
               headline={edition.headline}
@@ -136,17 +235,89 @@ export default function Home() {
               logoSrc={logoSrc}
             />
             <TableOfContents edition={edition} newspaperTitle={newspaperTitle} />
-            <ArticlePage article={edition.headline} section="headline" pageNumber={3} />
-            <ArticlePage article={edition.science} section="science" pageNumber={4} />
-            <ArticlePage article={edition.innovation} section="innovation" pageNumber={5} />
-            <ArticlePage article={edition.music} section="music" pageNumber={6} />
-            <ArticlePage article={edition.nature} section="nature" pageNumber={7} />
-            <ArticlePage article={edition.heritage} section="heritage" pageNumber={8} />
-            {edition.customArticle && (
-              <ArticlePage article={edition.customArticle} section="custom" pageNumber={9} />
+            <ArticlePage
+              article={edition.headline}
+              section="headline"
+              pageNumber={pageNums.headline}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            {edition.headline.full_page_image_prompt && (
+              <FullPageImagePage
+                prompt={edition.headline.full_page_image_prompt}
+                pageNumber={pageNums.headline + (edition.twoPageSection === "headline" ? 2 : 1)}
+                overlayText={edition.headline.quote}
+              />
             )}
-            <FunZonePage funZone={edition.funZone} startPage={edition.customArticle ? 10 : 9} />
-            <ComicPage comic={edition.comic} pageNumber={edition.customArticle ? 12 : 11} />
+            <ArticlePage
+              article={edition.science}
+              section="science"
+              pageNumber={pageNums.science}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            <ArticlePage
+              article={edition.innovation}
+              section="innovation"
+              pageNumber={pageNums.innovation}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            <ArticlePage
+              article={edition.music}
+              section="music"
+              pageNumber={pageNums.music}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            <ArticlePage
+              article={edition.nature}
+              section="nature"
+              pageNumber={pageNums.nature}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            {edition.nature.full_page_image_prompt && (
+              <FullPageImagePage
+                prompt={edition.nature.full_page_image_prompt}
+                pageNumber={pageNums.nature + (edition.twoPageSection === "nature" ? 2 : 1)}
+                overlayText={edition.nature.quote}
+              />
+            )}
+            <ArticlePage
+              article={edition.heritage}
+              section="heritage"
+              pageNumber={pageNums.heritage}
+              month={selectedMonth}
+              year={selectedYear}
+              onRegenerate={handleArticleRegenerate}
+              onImageUpload={handleImageUpload}
+            />
+            {edition.customArticle && (
+              <ArticlePage
+                article={edition.customArticle}
+                section="custom"
+                pageNumber={pageNums.custom}
+                month={selectedMonth}
+                year={selectedYear}
+                onRegenerate={handleArticleRegenerate}
+                onImageUpload={handleImageUpload}
+              />
+            )}
+            {edition.recommendation && (
+              <RecommendationPage recommendation={edition.recommendation} pageNumber={pageNums.recommendation} />
+            )}
+            <FunZonePage funZone={edition.funZone} startPage={pageNums.funZone} />
           </div>
         )}
 

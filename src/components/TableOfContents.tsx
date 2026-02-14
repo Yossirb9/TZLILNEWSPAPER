@@ -6,15 +6,13 @@ interface TableOfContentsProps {
   newspaperTitle?: string;
 }
 
-const sections = [
-  { key: "headline", icon: "📰", label: "כתבת השער", page: 3, color: "#1a365d" },
-  { key: "science", icon: "🔬", label: "מדעים", page: 4, color: "#2b6cb0" },
-  { key: "innovation", icon: "💡", label: "חדשנות", page: 5, color: "#276749" },
-  { key: "music", icon: "🎵", label: "מוזיקה", page: 6, color: "#6b46c1" },
-  { key: "nature", icon: "🌿", label: "טבע", page: 7, color: "#975a16" },
-  { key: "heritage", icon: "🏛️", label: "שבילי מורשת", page: 8, color: "#8B4513" },
-  { key: "funZone", icon: "🎮", label: "הפסקה פעילה", page: 9, color: "#c53030" },
-  { key: "comic", icon: "💬", label: "קומיקס", page: 11, color: "#d69e2e" },
+const baseSections = [
+  { key: "headline", icon: "📰", label: "כתבת השער", color: "#1a365d" },
+  { key: "science", icon: "🔬", label: "מדעים", color: "#2b6cb0" },
+  { key: "innovation", icon: "💡", label: "חדשנות", color: "#276749" },
+  { key: "music", icon: "🎵", label: "מוזיקה", color: "#6b46c1" },
+  { key: "nature", icon: "🌿", label: "טבע", color: "#975a16" },
+  { key: "heritage", icon: "🏛️", label: "שבילי מורשת", color: "#8B4513" },
 ];
 
 export default function TableOfContents({ edition, newspaperTitle = "צליל למצוינות" }: TableOfContentsProps) {
@@ -27,23 +25,41 @@ export default function TableOfContents({ edition, newspaperTitle = "צליל ל
       case "nature": return edition.nature.title;
       case "heritage": return edition.heritage.title;
       case "custom": return edition.customArticle?.title || "כתבה מיוחדת";
-      case "funZone": return "טריוויה, תפזורת ובדיחות!";
-      case "comic": return edition.comic.title;
+      case "recommendation": return edition.recommendation?.title || "פינת ההמלצה";
+      case "funZone": return "טריוויה, תפזורת ותשבץ!";
+
       default: return "";
     }
   };
 
-  const dynamicSections = [...sections];
-  if (edition.customArticle) {
-    dynamicSections.splice(6, 0, { key: "custom", icon: "⭐", label: "מיוחד", page: 9, color: "#D53F8C" });
-    // Shift subsequent pages
-    dynamicSections[7].page = 10; // FunZone starts at 10
-    dynamicSections[8].page = 12; // Comic is at 12
-  } else {
-    // Ensure defaults if no custom article
-    dynamicSections[6].page = 9; // FunZone starts at 9
-    dynamicSections[7].page = 11; // Comic is at 11
+  // Build sections list with dynamic page numbers
+  // Start at page 3 (after cover + TOC)
+  const dynamicSections: { key: string; icon: string; label: string; page: number; color: string }[] = [];
+  let currentPage = 3;
+
+  // Helper: which articles are 2-page
+  const twoPageKey = edition.twoPageSection;
+
+  for (const sec of baseSections) {
+    dynamicSections.push({ ...sec, page: currentPage });
+    currentPage += (sec.key === twoPageKey) ? 2 : 1;
   }
+
+  // Custom article (optional)
+  if (edition.customArticle) {
+    dynamicSections.push({ key: "custom", icon: "⭐", label: "מיוחד", page: currentPage, color: "#D53F8C" });
+    currentPage += 1;
+  }
+
+  // Recommendation
+  if (edition.recommendation) {
+    dynamicSections.push({ key: "recommendation", icon: "🌟", label: "פינת ההמלצה", page: currentPage, color: "#7C3AED" });
+    currentPage += 1;
+  }
+
+  // FunZone (4 pages: trivia, word search, crossword, tashchetz)
+  dynamicSections.push({ key: "funZone", icon: "🎮", label: "הפסקה פעילה", page: currentPage, color: "#c53030" });
+  currentPage += 4;
 
   return (
     <MagazinePage pageNumber={2}>

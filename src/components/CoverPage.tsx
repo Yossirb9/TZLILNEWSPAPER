@@ -48,6 +48,8 @@ export default function CoverPage({
             alt="Cover Background"
             className="w-full h-full object-cover opacity-90 !rounded-none"
             model="gemini-3-pro-image-preview"
+            imageType={headline.image_type}
+            searchQuery={headline.image_search_query}
           />
           {/* Lighter overlay - let image show through more */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/40 z-10" />

@@ -3,16 +3,22 @@ export interface ArticleContent {
   subtitle: string;
   content: string;
   image_prompt: string;
+  image_type?: "REAL" | "ART";
+  image_search_query?: string;
   sidebar: {
     title: string;
     content: string;
   };
   quote: string;
+  full_page_image_prompt?: string;
+  custom_image_url?: string;
   teaser?: string;
   footer_comic: {
     yellow_character: string;
     red_character: string;
   };
+  topic?: string;
+  is_two_page?: boolean;
 }
 
 export interface FunZoneContent {
@@ -21,28 +27,18 @@ export interface FunZoneContent {
     answer: string;
   }[];
   word_search_words: string[];
-  find_waldo_prompt: string;
   riddle: {
     question: string;
     answer: string;
   };
-}
-
-export interface ComicPanel {
-  panel_number: number;
-  scene_description: string;
-  characters: string[];
-  dialogue: {
-    character: string;
-    text: string;
+  crossword: {
+    clue: string;
+    answer: string;
   }[];
-  sound_effect?: string;
-}
-
-export interface ComicContent {
-  title: string;
-  image_prompt: string;
-  panels: ComicPanel[];
+  tashchetz?: {
+    clue: string;
+    answer: string;
+  }[];
 }
 
 export interface WordPlacement {
@@ -58,6 +54,18 @@ export interface WordSearchGrid {
   placements: WordPlacement[];
 }
 
+export interface RecommendationContent {
+  type: string; // ספר / הצגה / תוכנית / פודקאסט
+  title: string;
+  creator: string;
+  description: string;
+  age_range: string;
+  image_prompt: string;
+  image_type?: "REAL" | "ART";
+  image_search_query?: string;
+  why: string;
+}
+
 export interface Edition {
   headline: ArticleContent;
   science: ArticleContent;
@@ -67,6 +75,7 @@ export interface Edition {
   heritage: ArticleContent;
   customArticle?: ArticleContent;
   funZone: FunZoneContent;
-  comic: ComicContent;
+  recommendation?: RecommendationContent;
+  twoPageSection?: string;
   generatedAt: string;
 }

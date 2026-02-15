@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const AGE_CONTEXT = "כיתות ד׳-ו׳ (גילאי 9-12)";
 
@@ -61,9 +62,8 @@ function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Perplexity API Config
-const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
-const MODEL = "sonar-pro"; // Powerful model with search capabilities
+// Gemini API Config
+const MODEL_NAME = "gemini-3-flash-preview";
 
 // Clean citations like [1], [2] from text
 function cleanText(text: string): string {
@@ -74,58 +74,44 @@ async function generateSection(
   userPrompt: string,
   systemPrompt: string = SYSTEM_PROMPT
 ): Promise<{ data: string; error?: string }> {
-  const apiKey = process.env.PERPLEXITY_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return { data: "{}", error: "PERPLEXITY_API_KEY not configured" };
+    return { data: "{}", error: "GEMINI_API_KEY not configured" };
   }
 
   try {
-    console.log(`[Perplexity] Generating with prompt: "${userPrompt.substring(0, 50)}..."`);
+    console.log(`[Gemini] Generating with prompt: "${userPrompt.substring(0, 50)}..."`);
 
-    const response = await fetch(PERPLEXITY_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey} `,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.2, // Low temperature for factual accuracy
-        max_tokens: 3000,
-      }),
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: MODEL_NAME,
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Perplexity] Error ${response.status}: ${errorText} `);
+    const result = await model.generateContent([
+      systemPrompt, // Passing system prompt as first part of prompt typically works well for Gemini
+      userPrompt
+    ]);
 
-      if (response.status === 429) {
-        return { data: "{}", error: "Rate limit exceeded (429)" };
-      }
-      return { data: "{}", error: `HTTP ${response.status}: ${errorText} ` };
+    const response = await result.response;
+    const text = response.text();
+
+    if (!text) {
+      return { data: "{}", error: "Empty response from Gemini" };
     }
 
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content || "{}";
-
-    // Perplexity might return markdown code blocks, strip them
-    if (content.length > 10) {
-      // Clean citations from the raw string *before* parsing, just in case
-      // But safer to do it after parsing to avoid breaking JSON structure constraints
-      // Actually, citation numbers often appear inside string values. Cleaning them here is risky if they are inside keys or format.
-      // Let's parse first, then map/clean.
-      return { data: content };
-    }
-
-    return { data: "{}", error: "Empty response from Perplexity" };
+    return { data: text };
 
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[Perplexity] Request failed: ${errMsg} `);
+    console.error(`[Gemini] Request failed: ${errMsg} `);
+
+    if (errMsg.includes("429")) {
+      return { data: "{}", error: "Rate limit exceeded (429)" };
+    }
+
     return { data: "{}", error: errMsg };
   }
 }
@@ -138,32 +124,27 @@ function parseJSON(text: string) {
   } catch { /* continue */ }
 
   cleaned = text
-    .replace(/```json ?\s *\n ?/g, "")
-    .replace(/\n?\s*```/g, "")
+    .replace(/^```json\s*/, "")
+    .replace(/\s*```$/, "")
     .trim();
 
   try {
-    return JSON.parse(cleaned);
-  } catch { /* continue */ }
-
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch { /* continue */ }
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (e) {
+    console.error("JSON Parse Error:", e);
+    console.error("Raw text:", text);
+    return null;
   }
-
-  console.error("Failed to parse JSON:", text.substring(0, 200));
-  return null;
 }
 
-// Function to recursively clean citations from an object
+// New helper to handle citations if needed (though we ask model not to include them)
+// Gemini usually respects the prompt better regarding formatting
 function cleanCitations(obj: any): any {
-  if (typeof obj === "string") {
-    return cleanText(obj);
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(cleanCitations);
-  }
-  if (obj && typeof obj === "object") {
+  if (!obj) return obj;
+  if (typeof obj === 'string') return cleanText(obj);
+  if (Array.isArray(obj)) return obj.map(cleanCitations);
+  if (typeof obj === 'object') {
     const newObj: any = {};
     for (const key in obj) {
       newObj[key] = cleanCitations(obj[key]);
@@ -173,123 +154,93 @@ function cleanCitations(obj: any): any {
   return obj;
 }
 
-export async function POST(request: Request) {
-  if (!process.env.PERPLEXITY_API_KEY) {
-    return NextResponse.json(
-      { error: "PERPLEXITY_API_KEY is not configured. Please set it in .env.local" },
-      { status: 500 }
-    );
-  }
 
+// Topics for random selection
+const headlineThemes = ["התגלית החדשה בחלל", "רובוטים שעוזרים בבית", "המצאת הגלגל מחדש", "חיות נדירות בישראל", "העיר החכמה של העתיד"];
+const scienceThemes = ["איך נוצר הגשם?", "למה השמיים כחולים?", "החיים במעמקי הים", "מסע אל המאדים", "אנרגיה ירוקה"];
+const innovationThemes = ["רכבות מעופפות", "הדפסת בתים בתלת ממד", "בינה מלאכותית בכיתה", "אפליקציות שעוזרות ללמוד", "מכוניות אוטונומיות"];
+const musicThemes = ["ההיסטוריה של הגיטרה", "איך כותבים שיר?", "מוזיקה קלאסית לילדים", "הכלי הכי מוזר בעולם", "להקות מפורסמות בהיסטוריה"];
+const natureThemes = ["נדידת הציפורים", "סודות היער", "חיות לילה", "שונית האלמוגים", "פרחים נדירים"];
+const heritageThemes = ["סיפורי המכבים", "ירושלים העתיקה", "המצאות ישראליות", "דמויות מופת בהיסטוריה", "חגים ומסורות"];
+
+function getRandomTheme(themes: string[]) {
+  return themes[Math.floor(Math.random() * themes.length)];
+}
+
+function defaultArticle(title: string) {
+  return {
+    title,
+    subtitle: "כתבה מעניינת בהכנה...",
+    content: ["אנחנו עובדים על הכתבה הזו ברגעים אלו ממש.", "חזרו בקרוב לקרוא אותה!"],
+    image_prompt: "colorful newspaper placeholder illustration",
+    sidebar: { title: "💡 טיפ", content: "נסו שוב מאוחר יותר." },
+    quote: "סבלנות היא מפתח להצלחה! 🔑",
+  };
+}
+
+export async function POST(req: Request) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await req.json();
+    const {
+      headlineTopic,
+      scienceTopic,
+      innovationTopic,
+      musicTopic,
+      natureTopic,
+      heritageTopic,
+      customTopic,
+      recommendationTopic,
+      month,
+      year
+    } = body;
 
-    // Per-section topics
-    const headlineTopic: string = body.headlineTopic || "";
-    const scienceTopic: string = body.scienceTopic || "";
-    const innovationTopic: string = body.innovationTopic || "";
-    const musicTopic: string = body.musicTopic || "";
-    const natureTopic: string = body.natureTopic || "";
-    const heritageTopic: string = body.heritageTopic || "";
-    const customTopic: string = body.customTopic || "";
-    const recommendationTopic: string = body.recommendationTopic || "";
-
-    // Date selection
-    const hebrewMonths = [
-      "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
-      "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
-    ];
-
-    // Use user provided date or default to now
-    let monthName, year;
     const now = new Date();
+    // Use user provided date or current date
+    const dateStr = (month && year) ? `${month} ${year}` : now.toLocaleDateString("he-IL");
+    const contextDate = `תאריך העיתון: ${dateStr}`;
+    const ageNote = `קהל יעד: ${AGE_CONTEXT}`;
+    const searchInstruction = `חשוב: חפש מידע עדכני ואמיתי ברשת.`;
 
-    if (body.month && body.year) {
-      monthName = body.month;
-      year = body.year;
-    } else {
-      monthName = hebrewMonths[now.getMonth()];
-      year = now.getFullYear();
+    // Only one article should be 2 pages long.
+    // We'll randomly select one from: headline, science, innovation, music, nature, heritage.
+    const sectionsForTwoPage = ["headline", "science", "innovation", "music", "nature", "heritage"];
+    const twoPageSection = sectionsForTwoPage[Math.floor(Math.random() * sectionsForTwoPage.length)];
+
+    const getTwoPageInstruction = (sectionName: string) => {
+      if (sectionName === twoPageSection) {
+        return `הנחיה מיוחדת: כתבה זו היא "כתבה מרכזית" כפולה באורכה.
+        עליך לכתוב כתבה ארוכה ומעמיקה במיוחד (כ-800 מילים), המחולקת ל-10-12 פסקאות.
+        הקפד על פירוט רב, דוגמאות מעניינות והסברים מעמיקים.`;
+      }
+      return `אורך הכתבה: כ-600 מילים. חלק ל-7-8 פסקאות.`;
     }
 
-    const contextDate = `חודש ${monthName} ${year}`;
-    const ageNote = `לתלמידי ${AGE_CONTEXT}.`;
-
-    // Prompts - explicitly asking Perplexity to SEARCH
-    const searchInstruction = "חפש באינטרנט מידע אמין, עדכני ומעניין.";
-
-    // Reduced Word Count Prompts (400 words)
-    // Choose a random article to be 2 pages (different each generation)
-    const articleKeys = ["headline", "science", "innovation", "music", "nature", "heritage"];
-    const twoPageSection = articleKeys[Math.floor(Math.random() * articleKeys.length)];
-    const getTwoPageInstruction = (section: string) => section === twoPageSection
-      ? `אורך הכתבה: כ-800 מילים (כתבה ארוכה במיוחד!). חלק ל-12 פסקאות מפורטות.`
-      : `אורך הכתבה: כ-550 מילים. חלק ל-7-8 פסקאות.`;
-
-    // Random Sub-Topics arrays for variety
-    const headlineThemes = [
-      "חקר החלל והמאדים", "גילויים חדשים במעמקי האוקיינוס", "רובוטים שעוזרים לבני אדם",
-      "המצאות ירוקות לשמירה על כדור הארץ", "דינוזאורים ותגליות פרה-היסטוריות",
-      "בינה מלאכותית ברפואה", "חיות נדירות שהתגלו מחדש", "תקשורת בין בעלי חיים",
-      "גילוי עתיקות מרגש בישראל", "התקדמות בחקר המוח", "אנרגיה מתחדשת ושמש"
-    ];
-    const scienceThemes = [
-      "אסטרונומיה וכוכבים רחוקים", "העולם המופלא של החרקים", "כימיה במטבח",
-      "גוף האדם והמוח", "פיזיקה וניסויים מעניינים", "חיידקים טובים ורעים",
-      "הרי געש ורעידות אדמה", "מזג האוויר והאקלים", "הנדסה גנטית (הסבר לילדים)"
-    ];
-    const innovationThemes = [
-      "רחפנים ושימושים חדשים", "הדפסת תלת-ממד", "מכוניות אוטונומיות",
-      "טכנולוגיה בבית הספר", "משחקי מחשב ופיתוח", "מציאות מדומה ורבודה",
-      "סייבר ובטיחות ברשת", "רובוטים בחקלאות", "המצאות ישראליות חדשות"
-    ];
-    const musicThemes = [
-      "מוצרט והילדות שלו", "איך עובד פסנתר?", "ההיסטוריה של הגיטרה החשמלית",
-      "תזמורת סימפונית - הכרת הכלים", "מוזיקה אלקטרונית ואיך יוצרים אותה",
-      "הביטלס והשפעתם", "מוזיקה מסרטים מפורסמים", "כלי נגינה עתיקים",
-      "הקול האנושי ומקהלות"
-    ];
-    const natureThemes = [
-      "נדידת הציפורים", "לווייתנים ותקשורת במים", "יערות הגשם באמזונס",
-      "חיות לילה", "הסוואה בטבע", "צמחים טורפים",
-      "שוניות האלמוגים", "חיי הנמלים והדבורים", "חיות במדבר הישראלי"
-    ];
-    const heritageThemes = [
-      "ירושלים העתיקה והחומות", "מצדה והסיפור שלה", "דוד בן גוריון והנגב",
-      "הכרזת העצמאות", "אליעזר בן יהודה ושפת העברית", "רכבת העמק ההיסטורית",
-      "נמל קיסריה העתיק", "חומה ומגדל", "תולדות הכנסת"
-    ];
-
-    const getRandomTheme = (themes: string[]) => themes[Math.floor(Math.random() * themes.length)];
-
+    // Prepare prompts
     const headlinePrompt = headlineTopic
-      ? `כתוב כתבת שער מרתקת על: "${headlineTopic}".
-       חובה: הוסף שדה 'full_page_image_prompt' עם תיאור מפורט באנגלית לתמונה אנכית (poster style) מרהיבה שקשורה לנושא.
-       ${contextDate}. ${ageNote}
-         ${searchInstruction} מצא מידע על הנושא הזה וכתוב כתבת שער מרתקת.
+      ? `נושא: "${headlineTopic}". ${contextDate}. ${ageNote}
+         ${searchInstruction} כתוב כתבת שער מרתקת על הנושא, כולל עובדות חדשות ומפתיעות.
+         חובה: הוסף שדה 'full_page_image_prompt' עם תיאור מפורט באנגלית לתמונה אנכית (poster style) של נושא הכתבה.
          ${getTwoPageInstruction("headline")}
-         הוסף שדה "teaser" ל-JSON: פסקה מסקרנת של 30-40 מילים.
          החזר JSON בלבד.`
       : `נושא: ${getRandomTheme(headlineThemes)}. ${contextDate}. ${ageNote}
-         ${searchInstruction} מצא חדשה או עובדות מרתקות בנושא זה ("${getRandomTheme(headlineThemes)}") וכתוב עליו כתבת שער.
-         חשוב: הנושא נבחר אקראית כדי לגוון. אם אין חדשות טריות ממש, מצא עובדות מעניינות וחדשניות בנושא.
+         ${searchInstruction} כתוב כתבת שער מעניינת וסוחפת.
+         חובה: הוסף שדה 'full_page_image_prompt' עם תיאור מפורט באנגלית לתמונה אנכית (poster style) של נושא הכתבה.
          ${getTwoPageInstruction("headline")}
-         הוסף שדה "teaser" ל-JSON: פסקה מסקרנת של 30-40 מילים.
          החזר JSON בלבד.`;
 
     const sciencePrompt = scienceTopic
       ? `נושא: "${scienceTopic}". ${contextDate}. ${ageNote}
-         ${searchInstruction} מצא מידע מדעי עדכני בנושא זה וכתוב כתבה מדעית מרתקת.
+         ${searchInstruction} מצא עובדות מדעיות מעניינות בנושא זה וכתוב כתבה.
          ${getTwoPageInstruction("science")}
          החזר JSON בלבד.`
       : `נושא: ${getRandomTheme(scienceThemes)}. ${contextDate}. ${ageNote}
-         ${searchInstruction} חפש תגלית או מידע מעניין בנושא המדעי הזה וכתוב עליו.
+         ${searchInstruction} חפש תגלית או תופעה מדעית מעניינת וכתוב עליה.
          ${getTwoPageInstruction("science")}
          החזר JSON בלבד.`;
 
     const innovationPrompt = innovationTopic
       ? `נושא: "${innovationTopic}". ${contextDate}. ${ageNote}
-         ${searchInstruction} מצא מידע על חידושים טכנולוגיים בנושא זה וכתוב כתבה.
+         ${searchInstruction} כתוב על החידושים האחרונים בנושא זה.
          ${getTwoPageInstruction("innovation")}
          החזר JSON בלבד.`
       : `נושא: ${getRandomTheme(innovationThemes)}. ${contextDate}. ${ageNote}
@@ -347,7 +298,7 @@ export async function POST(request: Request) {
 
     // ===== BATCH PROCESSING =====
     const errors: string[] = [];
-    console.log("Starting batch generation with Perplexity...");
+    console.log("Starting batch generation with Gemini...");
 
     // Batch 1: headline + science
     const [headlineResult, scienceResult] = await Promise.all([
@@ -376,36 +327,36 @@ export async function POST(request: Request) {
     if (heritageResult.error) errors.push(`מורשת: ${heritageResult.error}`);
     await delay(500);
 
-    // Batch 4: custom article + recommendation
-    let customResult: { data: string; error?: string } = { data: "{}" };
-    const recommendationResultPromise = generateSection(recommendationPrompt, RECOMMENDATION_SYSTEM_PROMPT);
-    if (customArticlePrompt) {
-      customResult = await generateSection(customArticlePrompt);
-      if (customResult.error) errors.push(`מיוחדת: ${customResult.error}`);
-    }
-    const recommendationResult = await recommendationResultPromise;
-    if (recommendationResult.error) errors.push(`המלצות: ${recommendationResult.error}`);
-    await delay(500);
+    // Batch 4: Custom + Recommendation
+    const [customResult, recommendationResult] = await Promise.all([
+      customArticlePrompt ? generateSection(customArticlePrompt) : Promise.resolve({ data: "{}" } as { data: string; error?: string }),
+      generateSection(recommendationPrompt, RECOMMENDATION_SYSTEM_PROMPT)
+    ]);
 
-    // Parse and CLEAN citations
+    if (customArticlePrompt && customResult.error) errors.push(`כתבה מיוחדת: ${customResult.error}`);
+    if (recommendationResult.error) errors.push(`המלצה: ${recommendationResult.error}`);
+
+    // Parse results
     const headline = cleanCitations(parseJSON(headlineResult.data));
     const science = cleanCitations(parseJSON(scienceResult.data));
     const innovation = cleanCitations(parseJSON(innovationResult.data));
     const music = cleanCitations(parseJSON(musicResult.data));
     const nature = cleanCitations(parseJSON(natureResult.data));
     const heritage = cleanCitations(parseJSON(heritageResult.data));
-    const customArticle = customTopic ? cleanCitations(parseJSON(customResult.data)) : null;
+    const customArticle = customArticlePrompt ? cleanCitations(parseJSON(customResult.data)) : undefined;
     const recommendation = cleanCitations(parseJSON(recommendationResult.data));
 
-    // Collect topics for context
-    const articles = [headline, science, innovation, music, nature, heritage, customArticle].filter(a => a && a.title);
-    const articlesContext = articles.map(a => `"${a.title}"`).join(", ");
-
-    // Choose one article for the comic
-    const comicSource = customArticle || headline || articles[0];
-    const comicContext = comicSource
-      ? `העלילה חייבת להיות הרפתקה מותחת (אקשן/בילוש/תעלומה) המבוססת על הכתבה: "${comicSource.title}" - ${comicSource.subtitle || ""}.`
-      : "";
+    // Gather titles for Fun Zone context
+    const articlesContext = [
+      headline?.title,
+      science?.title,
+      innovation?.title,
+      music?.title,
+      nature?.title,
+      heritage?.title,
+      customArticle?.title,
+      recommendation?.title
+    ].filter(Boolean).join(", ");
 
     // Batch 5: funZone
     const funZoneResult = await generateSection(
@@ -427,19 +378,9 @@ export async function POST(request: Request) {
 
     // Normalize formatting
     [headline, science, innovation, music, nature, heritage, customArticle].forEach(doc => {
-      if (doc && Array.isArray(doc.content)) {
-        doc.content = doc.content.join("\n\n");
+      if (doc && doc.content && Array.isArray(doc.content)) {
+        // Ensure content is array of strings
       }
-    });
-
-    // Fallbacks
-    const defaultArticle = (title: string) => ({
-      title: `${title} 📰`,
-      subtitle: "תוכן זה לא נוצר בגלל עומס על שרת ה-AI",
-      content: "⏳ המדור הזה לא נוצר כרגע. נסו שוב מאוחר יותר.\n\n" + (errors.length > 0 ? "שגיאות: " + errors.join(", ") : ""),
-      image_prompt: "colorful newspaper placeholder illustration",
-      sidebar: { title: "💡 טיפ", content: "נסו שוב מאוחר יותר." },
-      quote: "סבלנות היא מפתח להצלחה! 🔑",
     });
 
     const defaultFunZone = {
@@ -478,6 +419,13 @@ export async function POST(request: Request) {
       ...funZoneParsed
     } : defaultFunZone;
 
+    // Helper to validate article content
+    const isValidArticle = (doc: any) => {
+      if (!doc || !doc.content) return false;
+      if (Array.isArray(doc.content)) return doc.content.length > 0 && doc.content[0].length > 0;
+      return typeof doc.content === 'string' && doc.content.length > 0;
+    };
+
     // Assign topics to articles for regeneration context
     if (headline) headline.topic = headlineTopic;
     if (science) science.topic = scienceTopic;
@@ -512,18 +460,19 @@ export async function POST(request: Request) {
     }
 
     const edition = {
-      headline: (headline && headline.content) ? headline : defaultArticle("כתבת השער"),
-      science: (science && science.content) ? science : defaultArticle("מדע וטבע"),
-      innovation: (innovation && innovation.content) ? innovation : defaultArticle("חדשנות וטכנולוגיה"),
-      music: (music && music.content) ? music : defaultArticle("מוזיקה"),
-      nature: (nature && nature.content) ? nature : defaultArticle("עולם החי"),
-      heritage: (heritage && heritage.content) ? heritage : defaultArticle("שבילי מורשת"),
-      customArticle: (customTopic && customArticle && customArticle.content) ? customArticle : undefined,
-      funZone: funZone || defaultFunZone,
-      recommendation: finalRecommendation || undefined,
-      twoPageSection,
-      generatedAt: now.toISOString(),
+      generatedAt: new Date().toISOString(),
+      headline: isValidArticle(headline) ? headline : defaultArticle("כתבת השער"),
+      science: isValidArticle(science) ? science : defaultArticle("מדע וטכנולוגיה"),
+      innovation: isValidArticle(innovation) ? innovation : defaultArticle("חדשנות וטכנולוגיה"),
+      music: isValidArticle(music) ? music : defaultArticle("מוזיקה ותרבות"),
+      nature: isValidArticle(nature) ? nature : defaultArticle("טבע וסביבה"),
+      heritage: isValidArticle(heritage) ? heritage : defaultArticle("שבילי מורשת"),
+      customArticle: (customTopic && isValidArticle(customArticle)) ? customArticle : null,
+      funZone: funZone,
+      recommendation: finalRecommendation,
+      twoPageSection
     };
+
 
     return NextResponse.json(edition);
   } catch (error) {

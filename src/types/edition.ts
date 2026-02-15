@@ -1,7 +1,7 @@
 export interface ArticleContent {
   title: string;
   subtitle: string;
-  content: string;
+  content: string | string[];
   image_prompt: string;
   image_type?: "REAL" | "ART";
   image_search_query?: string;

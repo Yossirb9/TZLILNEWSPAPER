@@ -13,6 +13,7 @@ interface ArticlePageProps {
   year?: number;
   onRegenerate?: (section: string, newArticle: ArticleContent) => void;
   onImageUpload?: (section: string, dataUrl: string) => void;
+  forceTwoPage?: boolean;
 }
 
 const sectionStyles: Record<
@@ -78,6 +79,7 @@ export default function ArticlePage({
   year,
   onRegenerate,
   onImageUpload,
+  ...props
 }: ArticlePageProps) {
   const [currentArticle, setCurrentArticle] = useState(article);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -89,7 +91,7 @@ export default function ArticlePage({
 
   const style = sectionStyles[section] || sectionStyles.headline;
   const isHeadline = section === "headline";
-  const isTwoPage = currentArticle.is_two_page === true;
+  const isTwoPage = props.forceTwoPage || currentArticle.is_two_page === true;
 
   const handleRegenerate = async () => {
     if (isRegenerating) return;
@@ -213,9 +215,10 @@ export default function ArticlePage({
     </div>
   );
 
-  const paragraphs = currentArticle.content
-    ? currentArticle.content.split(/\n\n|\n/).filter((p) => p.trim().length > 0)
-    : [];
+  const content = currentArticle.content;
+  const paragraphs = Array.isArray(content)
+    ? content.filter((p) => p.trim().length > 0)
+    : (content ? content.split(/\n\n|\n/).filter((p) => p.trim().length > 0) : []);
 
   const isDialogue = paragraphs.some(p => p.includes("רון:") || p.includes("יותם:"));
 

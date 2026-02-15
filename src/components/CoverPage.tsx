@@ -113,7 +113,7 @@ export default function CoverPage({
 
             <p className="text-base md:text-lg leading-relaxed text-white font-semibold text-right drop-shadow-[0_2px_2px_rgba(0,0,0,0.9)]"
               style={{ textShadow: "1px 1px 0 #000000" }}>
-              {headline.teaser || headline.content.substring(0, 350) + "..."}
+              {headline.teaser || (Array.isArray(headline.content) ? headline.content.join(" ") : headline.content).substring(0, 350) + "..."}
             </p>
           </div>
         </div>

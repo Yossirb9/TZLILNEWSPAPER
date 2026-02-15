@@ -16,7 +16,7 @@ export default function FullPageImagePage({ prompt, pageNumber, overlayText }: F
                 <ArticleImage
                     prompt={prompt} // The prompt should ask for a vertical poster
                     alt="Full page illustration"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover !rounded-none"
                     model="gemini-3-pro-image-preview" // Use best model for full page
                 />
 

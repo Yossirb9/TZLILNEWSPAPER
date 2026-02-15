@@ -144,52 +144,67 @@ export default function Home() {
 
   const articleOrder = ["headline", "science", "innovation", "music", "nature", "heritage"];
 
+  const getArticlePageCount = (article: ArticleContent | undefined) => {
+    if (!article) return 1;
+    if (article.is_two_page) return 2;
+    // Check word count
+    const contentStr = Array.isArray(article.content) ? article.content.join(" ") : (article.content || "");
+    const wordCount = contentStr.split(/\s+/).length;
+    return wordCount > 250 ? 2 : 1;
+
+  };
+
   // Calculate dynamic page numbers based on 2-page article
   const getPageNumbers = () => {
     if (!edition) return { headline: 3, science: 4, innovation: 5, music: 6, nature: 7, heritage: 8, custom: 9, recommendation: 10, funZone: 11 };
 
-    const twoPage = edition.twoPageSection;
-    let page = 3;
-    const pages: Record<string, number> = {};
+    let page = 3; // Start after cover (1) and TOC (2)
+    const nums: any = {};
 
-    pages.headline = page;
-    page += (twoPage === "headline" ? 2 : 1);
-    if (edition.headline.full_page_image_prompt) page++;
+    // Headline
+    nums.headline = page;
+    page += getArticlePageCount(edition.headline);
+    if (edition.headline?.full_page_image_prompt) page++;
 
-    pages.science = page;
-    page += (twoPage === "science" && edition.science.is_two_page) ? 2 : 1;
-    if (edition.science.full_page_image_prompt) page++;
+    // Science
+    nums.science = page;
+    page += getArticlePageCount(edition.science);
+    if (edition.science?.full_page_image_prompt) page++;
 
-    pages.innovation = page;
-    page += (twoPage === "innovation" && edition.innovation.is_two_page) ? 2 : 1;
-    if (edition.innovation.full_page_image_prompt) page++;
+    // Innovation
+    nums.innovation = page;
+    page += getArticlePageCount(edition.innovation);
+    if (edition.innovation?.full_page_image_prompt) page++;
 
-    pages.music = page;
-    page += (twoPage === "music" && edition.music.is_two_page) ? 2 : 1;
-    if (edition.music.full_page_image_prompt) page++;
+    // Music
+    nums.music = page;
+    page += getArticlePageCount(edition.music);
+    if (edition.music?.full_page_image_prompt) page++;
 
-    pages.nature = page;
-    page += (twoPage === "nature" && edition.nature.is_two_page) ? 2 : 1;
-    if (edition.nature.full_page_image_prompt) page++;
+    // Nature
+    nums.nature = page;
+    page += getArticlePageCount(edition.nature);
+    if (edition.nature?.full_page_image_prompt) page++;
 
-    pages.heritage = page;
-    page += (twoPage === "heritage" && edition.heritage.is_two_page) ? 2 : 1;
-    if (edition.heritage.full_page_image_prompt) page++;
+    // Heritage
+    nums.heritage = page;
+    page += getArticlePageCount(edition.heritage);
+    if (edition.heritage?.full_page_image_prompt) page++;
 
+    // Custom
+    nums.custom = page;
     if (edition.customArticle) {
-      pages.custom = page;
-      page++;
+      page += getArticlePageCount(edition.customArticle);
     }
 
-    if (edition.recommendation) {
-      pages.recommendation = page;
-      page++;
-    }
+    // Recommendation
+    nums.recommendation = page;
+    if (edition.recommendation) page += 1;
 
-    pages.funZone = page;
-    page += 4; // trivia/riddle, word search, crossword, tashchetz
+    // Fun Zone
+    nums.funZone = page;
 
-    return pages;
+    return nums;
   };
 
   const pageNums = edition ? getPageNumbers() : null;
@@ -247,7 +262,7 @@ export default function Home() {
             {edition.headline.full_page_image_prompt && (
               <FullPageImagePage
                 prompt={edition.headline.full_page_image_prompt}
-                pageNumber={pageNums.headline + (edition.twoPageSection === "headline" ? 2 : 1)}
+                pageNumber={pageNums.headline + getArticlePageCount(edition.headline)}
                 overlayText={edition.headline.quote}
               />
             )}
@@ -259,6 +274,7 @@ export default function Home() {
               year={selectedYear}
               onRegenerate={handleArticleRegenerate}
               onImageUpload={handleImageUpload}
+              forceTwoPage={getArticlePageCount(edition.science) === 2}
             />
             <ArticlePage
               article={edition.innovation}
@@ -268,6 +284,7 @@ export default function Home() {
               year={selectedYear}
               onRegenerate={handleArticleRegenerate}
               onImageUpload={handleImageUpload}
+              forceTwoPage={getArticlePageCount(edition.innovation) === 2}
             />
             <ArticlePage
               article={edition.music}
@@ -277,6 +294,7 @@ export default function Home() {
               year={selectedYear}
               onRegenerate={handleArticleRegenerate}
               onImageUpload={handleImageUpload}
+              forceTwoPage={getArticlePageCount(edition.music) === 2}
             />
             <ArticlePage
               article={edition.nature}
@@ -286,11 +304,12 @@ export default function Home() {
               year={selectedYear}
               onRegenerate={handleArticleRegenerate}
               onImageUpload={handleImageUpload}
+              forceTwoPage={getArticlePageCount(edition.nature) === 2}
             />
             {edition.nature.full_page_image_prompt && (
               <FullPageImagePage
                 prompt={edition.nature.full_page_image_prompt}
-                pageNumber={pageNums.nature + (edition.twoPageSection === "nature" ? 2 : 1)}
+                pageNumber={pageNums.nature + getArticlePageCount(edition.nature)}
                 overlayText={edition.nature.quote}
               />
             )}
@@ -302,6 +321,7 @@ export default function Home() {
               year={selectedYear}
               onRegenerate={handleArticleRegenerate}
               onImageUpload={handleImageUpload}
+              forceTwoPage={getArticlePageCount(edition.heritage) === 2}
             />
             {edition.customArticle && (
               <ArticlePage
@@ -312,6 +332,7 @@ export default function Home() {
                 year={selectedYear}
                 onRegenerate={handleArticleRegenerate}
                 onImageUpload={handleImageUpload}
+                forceTwoPage={getArticlePageCount(edition.customArticle) === 2}
               />
             )}
             {edition.recommendation && (

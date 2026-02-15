@@ -41,7 +41,7 @@ export default function TashchetzGrid({ items }: TashchetzGridProps) {
             return (
                 <div
                     key={`${r}-${c}`}
-                    className="bg-gray-800 border border-gray-700"
+                    className="bg-transparent" // Removed border and background
                     style={{ aspectRatio: '1' }}
                 />
             );
@@ -52,11 +52,11 @@ export default function TashchetzGrid({ items }: TashchetzGridProps) {
             return (
                 <div
                     key={`${r}-${c}`}
-                    className="bg-gray-200 border border-gray-400 p-[2px] flex flex-col items-center justify-center relative overflow-hidden"
+                    className="bg-gray-200 border border-gray-400 p-[1px] flex flex-col items-center justify-center relative overflow-hidden"
                     style={{ aspectRatio: '1' }}
                     dir="rtl"
                 >
-                    <span className="text-[6px] sm:text-[7px] leading-[1.1] text-gray-800 font-bold text-center break-words hyphens-auto"
+                    <span className="text-[8px] sm:text-[9px] leading-[1.1] text-gray-900 font-bold text-center break-words hyphens-auto"
                         style={{ wordBreak: 'break-all', maxHeight: '90%', overflow: 'hidden' }}>
                         {cell.text}
                     </span>
